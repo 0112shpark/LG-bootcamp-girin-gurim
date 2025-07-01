@@ -1,13 +1,10 @@
 # LG-bootcamp-girin-gurim
 
-## Compile network related modules
+Compile network server modules
 
-Server
+## HOW TO USE
 
-- "make server"
-- Run at Ubuntu server.
-
-Client
-
-- "make client:
-- Run at board.
+- cd Network
+- make
+- copy server_app file to ubuntu or server computer.
+- ./server_app

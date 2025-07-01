@@ -121,7 +121,6 @@ void run_client(const std::string& mode, const std::string& arg) {
     if (mode == "draw") {
         run_draw_loop(sockfd);
     } else if (mode == "answer") {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
         AnswerPacket apkt{};
         apkt.type = MSG_ANSWER;
         apkt.nickname = ""; // 서버에서 부여
