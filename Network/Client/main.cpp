@@ -1,4 +1,5 @@
 #include "client.h"
+#include "../../gpio/user/gpio_control.h"
 #include <iostream>
 #include <thread>
 #include <cstring>
@@ -74,11 +75,13 @@ void recv_thread(int sockfd) {
             CorrectPacket pkt;
             if (!recv_correctpacket(sockfd, pkt)) break;
             std::cout << "[정답!] " << pkt.nickname << "님이 정답을 맞혔습니다!\n";
+            gpio_led_correct();
             stop_draw = true;
         } else if (msg_type == MSG_WRONG) {
             WrongPacket pkt;
             if (!recv_wrongpacket(sockfd, pkt)) break;
             std::cout << "[오답] " << pkt.message << std::endl;
+            gpio_led_wrong();
         } else {
             char buf[256];
             recv(sockfd, buf, sizeof(buf), 0);
