@@ -84,7 +84,12 @@ void handle_client(int client_fd, int player_num) {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back({client_fd, nickname});
     }
+
+    PlayerNumPacket player_pkt{};
+    player_pkt.type = MSG_PLAYER_NUM;
+    player_pkt.player_num = player_num;
     std::cout << "Client connected (" << nickname << ")\n";
+    send(client_fd, &player_pkt, sizeof(player_pkt), 0);
 
     bool correct = false;
     while (true) {
