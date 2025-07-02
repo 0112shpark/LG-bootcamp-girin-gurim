@@ -117,6 +117,14 @@ void handle_client(int client_fd, int player_num) {
                 wrong_pkt.message = "오답입니다!";
                 send_wrongpacket(client_fd, wrong_pkt);
             }
+        } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
+            // 패킷 읽어서 실제 버퍼에서 빼줌
+            int dummy;
+            recv(client_fd, &dummy, sizeof(int), 0);
+            std::cout << "[서버] Player(" << nickname << ") disconnect\n";
+            close(client_fd);
+	    break;
+
         } else {
             // unknown
             char buf[256];

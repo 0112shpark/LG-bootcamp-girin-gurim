@@ -14,7 +14,8 @@ enum MessageType {
     MSG_ANSWER = 4,
     MSG_CORRECT = 5,
     MSG_WRONG = 6,
-    MSG_PLAYER_NUM = 7
+    MSG_PLAYER_NUM = 7,
+    MSG_DISCONNECT = 8 
 };
 
 struct DrawPacket {
