@@ -8,3 +8,5 @@ Compile network server modules
 - make
 - copy server_app file to ubuntu or server computer.
 - ./server_app
+
+### Use kernel Image in Image directory
