@@ -1,6 +1,6 @@
 obj-m := device_Control.o
 
-KERNELDIR := ~/work/linux
+KERNELDIR := ~/work/new-kernel
 PWD := $(shell pwd)
 
 all:

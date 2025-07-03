@@ -39,7 +39,7 @@ static struct resource *gpio_mem;
 #endif
 
 #define BTN_NUM 1
-#define GPIO_CLEAR_KEY 18
+#define GPIO_CLEAR_KEY 530
 static const int gpio_keys[BTN_NUM] = { GPIO_CLEAR_KEY };
 static int irq_keys[BTN_NUM];
 
@@ -222,12 +222,38 @@ static int __init device_init(void)
     init_waitqueue_head(&btn_wq);
 
     for (i = 0; i < BTN_NUM; i++) {
-        gpio_request(gpio_keys[i], "btn_gpio");
-        gpio_direction_input(gpio_keys[i]);
-        irq_keys[i] = gpio_to_irq(gpio_keys[i]);
-        request_irq(irq_keys[i], key_clear_isr, IRQF_TRIGGER_FALLING, "key_clear", NULL);
-        // 여러 버튼이면 (void*)(long)i 넘기고, key_clear_isr에서 (int)(long)dev_id
+    int ret;
+    printk("dev_Control: gpio_request(%d)\n", gpio_keys[i]);
+    ret = gpio_request(gpio_keys[i], "btn_gpio");
+    if (ret) {
+        printk("dev_Control: gpio_request failed for gpio %d, ret = %d\n", gpio_keys[i], ret);
+        continue;
     }
+
+    printk("dev_Control: gpio_direction_input(%d)\n", gpio_keys[i]);
+    ret = gpio_direction_input(gpio_keys[i]);
+    if (ret) {
+        printk("dev_Control: gpio_direction_input failed for gpio %d, ret = %d\n", gpio_keys[i], ret);
+        gpio_free(gpio_keys[i]);
+        continue;
+    }
+
+    irq_keys[i] = gpio_to_irq(gpio_keys[i]);
+    printk("dev_Control: gpio_to_irq(%d) = %d\n", gpio_keys[i], irq_keys[i]);
+    if (irq_keys[i] < 0) {
+        printk("dev_Control: gpio_to_irq failed for gpio %d, irq = %d\n", gpio_keys[i], irq_keys[i]);
+        gpio_free(gpio_keys[i]);
+        continue;
+    }
+
+    printk("dev_Control: request_irq(%d)\n", irq_keys[i]);
+    ret = request_irq(irq_keys[i], key_clear_isr, IRQF_TRIGGER_FALLING, "key_clear", NULL);
+    if (ret) {
+        printk("dev_Control: request_irq failed for irq %d, ret = %d\n", irq_keys[i], ret);
+        gpio_free(gpio_keys[i]);
+        continue;
+    }
+}
     printk("dev_Control: IRQ enabled for buttons\n");
     return 0;
 
