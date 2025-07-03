@@ -77,6 +77,12 @@ void broadcast_correct(const CorrectPacket& pkt) {
         send_correctpacket(client.fd, pkt);
 }
 
+void broadcast_playerCnt(const PlayerCntPacket& pkt) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (const auto& client : clients)
+        send(client.fd, &pkt.type, sizeof(pkt.type), 0);
+}
+
 void handle_client(int client_fd, int player_num) {
     std::string nickname = "player" + std::to_string(player_num);
 
@@ -86,10 +92,19 @@ void handle_client(int client_fd, int player_num) {
     }
 
     PlayerNumPacket player_pkt{};
+    PlayerCntPacket capacity_pkt{};
+
     player_pkt.type = MSG_PLAYER_NUM;
     player_pkt.player_num = player_num;
+
+    capacity_pkt.type = MSG_PLAYER_CNT;
+    capacity_pkt.currentPlayer_cnt = current_Player;
+    capacity_pkt.maxPlayer = max_Player;
+
     std::cout << "Client connected (" << nickname << ")\n";
+    send(client_fd, &capacity_pkt, sizeof(capacity_pkt), 0);
     send(client_fd, &player_pkt, sizeof(player_pkt), 0);
+
 
     bool correct = false;
     while (true) {
@@ -104,7 +119,7 @@ void handle_client(int client_fd, int player_num) {
         } else if (msg_type == MSG_ANSWER) {
             AnswerPacket pkt;
             if (!recv_answerpacket(client_fd, pkt)) break;
-            std::cout << "[정답시도] " << nickname << ": " << pkt.answer << std::endl;
+            std::cout << "[Received answer] " << nickname << ": " << pkt.answer << std::endl;
             if (pkt.answer == current_answer) {
                 CorrectPacket correct_pkt{};
                 correct_pkt.type = MSG_CORRECT;
@@ -114,15 +129,15 @@ void handle_client(int client_fd, int player_num) {
             } else {
                 WrongPacket wrong_pkt{};
                 wrong_pkt.type = MSG_WRONG;
-                wrong_pkt.message = "오답입니다!";
+                wrong_pkt.message = pkt.answer;
                 send_wrongpacket(client_fd, wrong_pkt);
             }
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
-            // 패킷 읽어서 실제 버퍼에서 빼줌
             int dummy;
             recv(client_fd, &dummy, sizeof(int), 0);
-            std::cout << "[서버] Player(" << nickname << ") disconnect\n";
+            std::cout << "[Server] Player(" << nickname << ") disconnect\n";
             close(client_fd);
+            current_Player--;
 	    break;
 
         } else {
@@ -169,6 +184,12 @@ void run_server(unsigned short port, const std::string& answer_word) {
         int client_fd = accept(server_fd, (sockaddr*)&client_addr, &client_len);
         if (client_fd < 0) { perror("accept"); continue; }
         std::thread(handle_client, client_fd, player_counter++).detach();
+        if(current_Player < max_Player) {
+            current_Player++;
+        }
+        else {
+            std::cout  << "Out of capacity" << std::endl;
+        }
     }
     close(server_fd);
 }
