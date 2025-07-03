@@ -11,26 +11,29 @@
 // 디바이스 파일 경로 (필요시 환경에 맞게 수정)
 #define GPIO_DEV_PATH "/dev/mydev"
 
-void gpio_led_correct() {
+void handle_device_control_request(requestType requestType)
+{
     int fd = open(GPIO_DEV_PATH, O_RDWR);
     if (fd < 0) {
         perror("open /dev/mydev");
         return;
     }
-    // LED ON
-    ioctl(fd, MY_IOCTL_CMD_LED_ON);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-    // LED OFF
-    ioctl(fd, MY_IOCTL_CMD_LED_OFF);
-    close(fd);
-}
 
-void gpio_led_wrong() {
-    int fd = open(GPIO_DEV_PATH, O_RDWR);
-    if (fd < 0) {
-        perror("open /dev/my_device");
-        return;
+    switch(requestType){
+        case LED_CORRECT:
+            ioctl(fd, MY_IOCTL_CMD_LED_ON);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            // LED OFF
+            ioctl(fd, MY_IOCTL_CMD_LED_OFF);
+            break;
+        case LED_WRONG:
+            ioctl(fd, MY_IOCTL_CMD_LED_BLINK);
+            break;
+        case BTN_CLEAR:
+            ioctl(fd, MY_IOCTL_CMD_BTN_CLEAR);
+            break;
+        default:
+            break; 
     }
-    ioctl(fd, MY_IOCTL_CMD_LED_BLINK);
     close(fd);
 }

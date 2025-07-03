@@ -3,7 +3,12 @@
 
 #include "../include/custom_ioctl.h"
 
-void gpio_led_correct();
-void gpio_led_wrong();
+enum requestType {
+    LED_CORRECT,
+    LED_WRONG,
+    BTN_CLEAR
+};
+
+void handle_device_control_request(requestType requestType);
 
 #endif // GPIO_CONTROL_H
