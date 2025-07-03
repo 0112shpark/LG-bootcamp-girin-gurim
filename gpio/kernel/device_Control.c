@@ -65,13 +65,13 @@ static void led_off(void)
 
 static void led_blink(void)
 {
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 4; ++i) {
         iowrite32(0x1 << 5, (void*)(gpio_base + GPCLR0));
         iowrite32(0x1 << 6, (void*)(gpio_base + GPSET0));
-        mdelay(300);
+        mdelay(100);
         iowrite32(0x1 << 5, (void*)(gpio_base + GPSET0));
         iowrite32(0x1 << 6, (void*)(gpio_base + GPCLR0));
-        mdelay(300);
+        mdelay(100);
     }
     iowrite32(0x3 << 5, (void*)(gpio_base + GPSET0));
 }
