@@ -65,6 +65,12 @@ void send_wrongpacket(int fd, const WrongPacket& pkt) {
     send_string(fd, pkt.message);
 }
 
+void send_commonpacket(int fd, const CommonPacket& pkt) {
+    send(fd, &pkt.type, sizeof(pkt.type), 0);
+    send_string(fd, pkt.nickname);
+    send_string(fd, pkt.message);
+}
+
 void broadcast_draw(const DrawPacket& pkt, int except_fd = -1) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients) {
@@ -78,14 +84,41 @@ void broadcast_correct(const CorrectPacket& pkt) {
         send_correctpacket(client.fd, pkt);
 }
 
+void broadcast_common(const CommonPacket& pkt) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (const auto& client : clients)
+        send_commonpacket(client.fd, pkt);
+}
+
 void broadcast_playerCnt(const PlayerCntPacket& pkt) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients)
         send(client.fd, &pkt, sizeof(pkt), 0);
 }
 
-void handle_client(int client_fd, int player_num) {
+void handle_client(int client_fd, int player_num, bool is_first_client) {
     std::string nickname = "player" + std::to_string(player_num);
+
+    if (is_first_client) {
+        // 최초 클라이언트로부터 max_Player 정보 수신
+        int msgType = 0;
+        ssize_t n = recv(client_fd, &msgType, sizeof(int), MSG_WAITALL);
+        if (n <= 0 || msgType != MSG_SET_MAX_PLAYER) {
+            std::cerr << "Failed to receive maxPlayer info from first client!\n";
+            close(client_fd);
+            return;
+        }
+        int newMaxPlayer = 2;
+        n = recv(client_fd, &newMaxPlayer, sizeof(int), MSG_WAITALL);
+        if (n != sizeof(int)) {
+            std::cerr << "Failed to receive maxPlayer value!\n";
+            close(client_fd);
+            return;
+        }
+        max_Player = newMaxPlayer;
+        std::cout << "[Server] max_Player set to " << max_Player << " by first client\n";
+    }
+
 
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
@@ -123,17 +156,18 @@ void handle_client(int client_fd, int player_num) {
             if (!recv_answerpacket(client_fd, pkt)) break;
             std::cout << "[Received answer] " << nickname << ": " << pkt.answer << std::endl;
             if (pkt.answer == current_answer) {
-                CorrectPacket correct_pkt{};
+                CommonPacket correct_pkt{};
                 correct_pkt.type = MSG_CORRECT;
                 correct_pkt.nickname = nickname;
-                broadcast_correct(correct_pkt);
+                correct_pkt.message = pkt.answer;
+                broadcast_common(correct_pkt);
                 correct = true;
             } else {
-                WrongPacket wrong_pkt{};
+                CommonPacket wrong_pkt{};
                 wrong_pkt.type = MSG_WRONG;
-                wrong_pkt.message = pkt.answer;
                 wrong_pkt.nickname = nickname;
-                send_wrongpacket(client_fd, wrong_pkt);
+                wrong_pkt.message = pkt.answer;
+                broadcast_common(wrong_pkt);
             }
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
             int dummy;
@@ -160,6 +194,12 @@ void handle_client(int client_fd, int player_num) {
         );
     }
     std::cout << "Client disconnected (" << nickname << ")\n";
+
+    if (clients.empty()) {
+        max_Player = 2; // 모두 나갔을 경우 기본값으로 초기화 
+        std::cout << "[Server] All clients disconnected. max_Player reset to 2.\n";
+
+    }
 }
 
 void run_server(unsigned short port, const std::string& answer_word) {
@@ -182,16 +222,40 @@ void run_server(unsigned short port, const std::string& answer_word) {
     std::cout << "[서버] 192.168.10.3:25000에서 대기중... (정답:" << current_answer << ")\n";
     int player_counter = 1;
     current_Player = 0;
+    bool is_first_client = true;
+    std::mutex is_first_client_mutex; 
+
     while (true) {
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (sockaddr*)&client_addr, &client_len);
         if (client_fd < 0) { perror("accept"); continue; }
-        std::thread(handle_client, client_fd, player_counter++).detach();
+
+        // 현재 is_first_client 값 읽어서 전달
+        bool this_is_first_client;
+        {
+            std::lock_guard<std::mutex> lock(is_first_client_mutex);
+            this_is_first_client = is_first_client;
+            if (is_first_client) is_first_client = false;
+        }
+
+        // 스레드 생성 시 람다로 감싸서, 클라이언트 종료 후 체크
+        std::thread([&, client_fd, player_num = player_counter++, this_is_first_client]() {
+            handle_client(client_fd, player_num, this_is_first_client);
+
+            // 클라이언트가 종료된 후 체크
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            if (clients.empty()) {
+                max_Player = 2; // 초기값으로 리셋
+                std::lock_guard<std::mutex> lock2(is_first_client_mutex);
+                is_first_client = true;
+                std::cout << "[Server] All clients disconnected. max_Player and is_first_client reset.\n";
+            }
+        }).detach();
+
         if(current_Player < max_Player) {
             current_Player++;
-        }
-        else {
+        } else {
             std::cout  << "Out of capacity" << std::endl;
         }
     }
