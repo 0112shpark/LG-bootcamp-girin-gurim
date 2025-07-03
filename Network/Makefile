@@ -12,7 +12,7 @@ GPIO_USER_SRC = $(GPIO_USER_DIR)/gpio_control.cpp
 GPIO_USER_HDR = $(GPIO_USER_DIR)/gpio_control.h
 GPIO_INC_HDR = $(GPIO_INCLUDE_DIR)/custom_ioctl.h
 
-SERVER_SRC = $(SERVER_DIR)/main.cpp
+SERVER_SRC = $(wildcard $(SERVER_DIR)/*.cpp)
 CLIENT_SRC = $(CLIENT_DIR)/main.cpp
 
 SERVER_HDR = $(SERVER_DIR)/server.h

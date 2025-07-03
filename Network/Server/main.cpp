@@ -61,6 +61,7 @@ void send_correctpacket(int fd, const CorrectPacket& pkt) {
 }
 void send_wrongpacket(int fd, const WrongPacket& pkt) {
     send(fd, &pkt.type, sizeof(pkt.type), 0);
+    send_string(fd, pkt.nickname);
     send_string(fd, pkt.message);
 }
 
@@ -80,7 +81,7 @@ void broadcast_correct(const CorrectPacket& pkt) {
 void broadcast_playerCnt(const PlayerCntPacket& pkt) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients)
-        send(client.fd, &pkt.type, sizeof(pkt.type), 0);
+        send(client.fd, &pkt, sizeof(pkt), 0);
 }
 
 void handle_client(int client_fd, int player_num) {
@@ -102,7 +103,8 @@ void handle_client(int client_fd, int player_num) {
     capacity_pkt.maxPlayer = max_Player;
 
     std::cout << "Client connected (" << nickname << ")\n";
-    send(client_fd, &capacity_pkt, sizeof(capacity_pkt), 0);
+    std::cout <<capacity_pkt.currentPlayer_cnt << ")\n";
+    broadcast_playerCnt(capacity_pkt);
     send(client_fd, &player_pkt, sizeof(player_pkt), 0);
 
 
@@ -130,6 +132,7 @@ void handle_client(int client_fd, int player_num) {
                 WrongPacket wrong_pkt{};
                 wrong_pkt.type = MSG_WRONG;
                 wrong_pkt.message = pkt.answer;
+                wrong_pkt.nickname = nickname;
                 send_wrongpacket(client_fd, wrong_pkt);
             }
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
@@ -178,6 +181,7 @@ void run_server(unsigned short port, const std::string& answer_word) {
     }
     std::cout << "[서버] 192.168.10.3:25000에서 대기중... (정답:" << current_answer << ")\n";
     int player_counter = 1;
+    current_Player = 0;
     while (true) {
         sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
