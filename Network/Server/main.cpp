@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <random>
 
 void send_string(int fd, const std::string& s) {
     uint32_t len = s.size();
@@ -96,6 +97,27 @@ void broadcast_playerCnt(const PlayerCntPacket& pkt) {
         send(client.fd, &pkt, sizeof(pkt), 0);
 }
 
+void broadcast_selected_player(const std::string& nickname) {
+    SelectedPlayerPacket pkt;
+    pkt.type = MSG_SELECTED_PLAYER;
+    pkt.nickname = nickname;
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (const auto& client : clients) {
+        // Packet 전송
+        send(client.fd, &pkt.type, sizeof(pkt.type), 0);
+        send_string(client.fd, pkt.nickname);
+    }
+}
+
+    std::string pick_random_player() {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    if (clients.empty()) return "";
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, clients.size() - 1);
+    return clients[dis(gen)].nickname;
+}
+
 void handle_client(int client_fd, int player_num, bool is_first_client) {
     std::string nickname = "player" + std::to_string(player_num);
 
@@ -173,6 +195,14 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     std::cout <<capacity_pkt.currentPlayer_cnt << ")\n";
     broadcast_playerCnt(capacity_pkt);
     send(client_fd, &player_pkt, sizeof(player_pkt), 0);
+
+    if (current_Player == max_Player) {
+        std::string selected = pick_random_player();
+        if (!selected.empty()) {
+            broadcast_selected_player(selected);
+            std::cout << "[Server] Selected player: " << selected << std::endl;
+        }
+    }
 
 
     bool correct = false;

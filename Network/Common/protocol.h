@@ -18,7 +18,8 @@ enum MessageType {
     MSG_WRONG = 6,
     MSG_PLAYER_NUM = 7,
     MSG_DISCONNECT = 8,
-    MSG_PLAYER_CNT = 9
+    MSG_PLAYER_CNT = 9,
+    MSG_SELECTED_PLAYER = 10
 };
 
 struct DrawPacket {
@@ -62,6 +63,11 @@ struct PlayerCntPacket {
     int type;
     int currentPlayer_cnt;
     int maxPlayer;
+};
+
+struct SelectedPlayerPacket {
+    int type;
+    std::string nickname;
 };
 
 #endif
