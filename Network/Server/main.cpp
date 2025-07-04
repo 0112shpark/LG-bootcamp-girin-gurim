@@ -117,14 +117,48 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
         }
         max_Player = newMaxPlayer;
         std::cout << "[Server] max_Player set to " << max_Player << " by first client\n";
+    }else {
+        // 모든 후속 클라이언트는 반드시 MSG_SET_MAX_PLAYER + 값 1쌍을 보내야만 한다!
+        int msgType = 0;
+        ssize_t n = recv(client_fd, &msgType, sizeof(int), MSG_WAITALL);
+        if (n != sizeof(int) || msgType != MSG_SET_MAX_PLAYER) {
+            std::cerr << "[Server] rejected client: did not send MSG_SET_MAX_PLAYER\n";
+            close(client_fd);
+            return;
+        }
+        int requestedMaxPlayer = 0;
+        n = recv(client_fd, &requestedMaxPlayer, sizeof(int), MSG_WAITALL);
+        if (n != sizeof(int) || requestedMaxPlayer != max_Player) {
+            std::cerr << "[Server] rejected client: requested maxPlayer("
+            << requestedMaxPlayer << ") != server max_Player("
+            << max_Player << ")\n";
+            int reject_type = MSG_REJECTED;
+            send(client_fd, &reject_type, sizeof(reject_type), 0);
+            shutdown(client_fd, SHUT_WR); // write half close (flush)
+            usleep(100000); // 100ms, 충분히 flush할 시간
+            close(client_fd);
+            return;
+}
     }
 
+    // 참가 조건 체크
+    if (current_Player >= max_Player) {
+        std::cout << "[Server] Out of capacity (current: " << current_Player << ", max: " << max_Player << ")\n";
+        int reject_type = MSG_REJECTED;
+        send(client_fd, &reject_type, sizeof(reject_type), 0);
+        shutdown(client_fd, SHUT_WR);
+        usleep(100000); // 100ms
+        close(client_fd);
+        return;
+    }
 
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back({client_fd, nickname});
+        current_Player++;
     }
 
+    
     PlayerNumPacket player_pkt{};
     PlayerCntPacket capacity_pkt{};
 
@@ -173,8 +207,13 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             int dummy;
             recv(client_fd, &dummy, sizeof(int), 0);
             std::cout << "[Server] Player(" << nickname << ") disconnect\n";
-            close(client_fd);
             current_Player--;
+            PlayerCntPacket capacity_pkt{};
+            capacity_pkt.type = MSG_PLAYER_CNT;
+            capacity_pkt.currentPlayer_cnt = current_Player;
+            capacity_pkt.maxPlayer = max_Player;
+            broadcast_playerCnt(capacity_pkt);
+            close(client_fd);
 	    break;
 
         } else {
@@ -253,11 +292,6 @@ void run_server(unsigned short port, const std::string& answer_word) {
             }
         }).detach();
 
-        if(current_Player < max_Player) {
-            current_Player++;
-        } else {
-            std::cout  << "Out of capacity" << std::endl;
-        }
     }
     close(server_fd);
 }
