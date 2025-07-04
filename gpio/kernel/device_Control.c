@@ -38,9 +38,17 @@ static volatile unsigned long gpio_base;
 static struct resource *gpio_mem;
 #endif
 
-#define BTN_NUM 1
+#define BTN_NUM 5
+#define GPIO_CLEAR_PEN_KEY 529
 #define GPIO_CLEAR_KEY 530
-static const int gpio_keys[BTN_NUM] = { GPIO_CLEAR_KEY };
+#define GPIO_COLOR_CHANGE_KEY 512
+#define GPIO_INC_PEN_SIZE_KEY 513
+#define GPIO_DEC_PEN_SIZE_KEY 519
+static const int gpio_keys[BTN_NUM] = { GPIO_CLEAR_PEN_KEY,
+                                        GPIO_CLEAR_KEY, 
+                                        GPIO_COLOR_CHANGE_KEY,
+                                        GPIO_INC_PEN_SIZE_KEY,
+                                        GPIO_DEC_PEN_SIZE_KEY };
 static int irq_keys[BTN_NUM];
 
 static wait_queue_head_t btn_wq;
@@ -166,7 +174,7 @@ static const struct file_operations my_fops = {
 // === ISR에서 버튼 이벤트 wakeup ===
 static irqreturn_t key_clear_isr(int irq, void *dev_id)
 {
-    int idx = 0; // 여러 버튼이면 (int)(long)dev_id
+    int idx = (int)(long)dev_id;
     btn_flag = 1;
     btn_event_idx = idx;
     wake_up_interruptible(&btn_wq);
@@ -247,7 +255,7 @@ static int __init device_init(void)
     }
 
     printk("dev_Control: request_irq(%d)\n", irq_keys[i]);
-    ret = request_irq(irq_keys[i], key_clear_isr, IRQF_TRIGGER_FALLING, "key_clear", NULL);
+    ret = request_irq(irq_keys[i], key_clear_isr, IRQF_TRIGGER_FALLING, "key_clear", (void *)(long)i);
     if (ret) {
         printk("dev_Control: request_irq failed for irq %d, ret = %d\n", irq_keys[i], ret);
         gpio_free(gpio_keys[i]);
