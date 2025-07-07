@@ -248,6 +248,16 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             broadcast_selected_player(selected);
             std::cout << "[Server] Selected player: " << selected << std::endl;
         }
+            ScorePacket score_pkt{};
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            score_pkt.type = MSG_SCORE;
+            for (const auto& kv : player_scores) {
+                std::cout << "Score send: " << kv.first << " " << kv.second << std::endl;
+                score_pkt.score.push_back({kv.first, kv.second});
+            }
+        }
+            broadcast_score(score_pkt);
     }
 
     while (true) {
@@ -259,7 +269,6 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             DrawPacket pkt;
             pkt.type = MSG_DRAW;
             if (!recv_drawpacket(client_fd, pkt)) break;
-            std::cout<<"x: "<<pkt.x<<"y: "<<pkt.y<<std::endl;
             broadcast_draw(pkt, client_fd);
         } else if (msg_type == MSG_ANSWER) {
             AnswerPacket pkt;
@@ -267,27 +276,23 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             std::cout << "[Received answer] " << nickname << ": " << pkt.answer << std::endl;
             if (toLower(pkt.answer) == toLower(current_answer)) {
 
+                ScorePacket score_pkt{};
             {
                 std::lock_guard<std::mutex> lock(clients_mutex);
                 player_scores[nickname]++;
+                score_pkt.type = MSG_SCORE;
+                
+                for (const auto& kv : player_scores) {
+                        score_pkt.score.push_back({kv.first, kv.second});
+                    }
             }
+                broadcast_score(score_pkt);
                 // broadcast correct answer
                 CommonPacket correct_pkt{};
                 correct_pkt.type = MSG_CORRECT;
                 correct_pkt.nickname = nickname;
                 correct_pkt.message = pkt.answer;
                 broadcast_common(correct_pkt);
-
-                // broadcast score
-                ScorePacket score_pkt{};
-                score_pkt.type = MSG_SCORE;
-                {
-                    std::lock_guard<std::mutex> lock(clients_mutex);
-                    for (const auto& kv : player_scores) {
-                        score_pkt.score.push_back({kv.first, kv.second});
-                    }
-                }
-                broadcast_score(score_pkt);
             } else {
                 CommonPacket wrong_pkt{};
                 wrong_pkt.type = MSG_WRONG;
