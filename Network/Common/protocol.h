@@ -4,6 +4,8 @@
 #define SERVER_PORT 25000
 
 #include <string>
+#include <vector>
+#include <utility>
 
 #define MAX_CLIENTS 10
 #define MSG_SET_MAX_PLAYER 9999
@@ -21,7 +23,8 @@ enum MessageType {
     MSG_DISCONNECT = 8,
     MSG_PLAYER_CNT = 9,
     MSG_SELECTED_PLAYER = 10,
-    MSG_ERASE_ALL = 11
+    MSG_ERASE_ALL = 11,
+    MSG_SCORE = 12
 };
 
 struct DrawPacket {
@@ -76,4 +79,8 @@ struct EraseAllPacket {
     int type;
 };
 
+struct ScorePacket {
+    int type;
+    std::vector<std::pair<std::string, int>> score;
+};
 #endif

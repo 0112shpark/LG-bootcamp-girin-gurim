@@ -92,6 +92,22 @@ void send_commonpacket(int fd, const CommonPacket& pkt) {
     send_string(fd, pkt.message);
 }
 
+void send_scorepacket(int fd, const ScorePacket& pkt) {
+    send(fd, &pkt.type, sizeof(pkt.type), 0);
+    uint32_t sz = pkt.score.size();
+    send(fd, &sz, sizeof(sz), 0);
+    for (auto& p : pkt.score) {
+        send_string(fd, p.first);
+        send(fd, &p.second, sizeof(p.second), 0);
+    }
+}
+
+void broadcast_score(const ScorePacket& pkt) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (const auto& client : clients)
+        send_scorepacket(client.fd, pkt);
+}
+
 void broadcast_draw(const DrawPacket& pkt, int except_fd = -1) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients) {
@@ -206,6 +222,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back({client_fd, nickname});
+        player_scores[nickname] = 0;
         current_Player++;
     }
 
@@ -233,8 +250,6 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
         }
     }
 
-
-    bool correct = false;
     while (true) {
         int msg_type = 0;
         ssize_t n = recv(client_fd, &msg_type, sizeof(int), 0);
@@ -251,12 +266,28 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             if (!recv_answerpacket(client_fd, pkt)) break;
             std::cout << "[Received answer] " << nickname << ": " << pkt.answer << std::endl;
             if (toLower(pkt.answer) == toLower(current_answer)) {
+
+            {
+                std::lock_guard<std::mutex> lock(clients_mutex);
+                player_scores[nickname]++;
+            }
+                // broadcast correct answer
                 CommonPacket correct_pkt{};
                 correct_pkt.type = MSG_CORRECT;
                 correct_pkt.nickname = nickname;
                 correct_pkt.message = pkt.answer;
                 broadcast_common(correct_pkt);
-                correct = true;
+
+                // broadcast score
+                ScorePacket score_pkt{};
+                score_pkt.type = MSG_SCORE;
+                {
+                    std::lock_guard<std::mutex> lock(clients_mutex);
+                    for (const auto& kv : player_scores) {
+                        score_pkt.score.push_back({kv.first, kv.second});
+                    }
+                }
+                broadcast_score(score_pkt);
             } else {
                 CommonPacket wrong_pkt{};
                 wrong_pkt.type = MSG_WRONG;
@@ -270,8 +301,6 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             std::cout<<"send erase"<<std::endl;
             broadcast_eraseAll(erase_pkt, client_fd);
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
-            //int dummy;
-            //recv(client_fd, &dummy, sizeof(int), 0);
             std::cout << "[Server] Player(" << nickname << ") disconnect\n";
             current_Player--;
             PlayerCntPacket capacity_pkt{};
@@ -284,8 +313,6 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
 
         }else if (msg_type == MSG_SET_TRUE_ANSWER) {
             // 출제자 클라이언트가 단어를 보냄
-            int dummy;
-            recv(client_fd, &dummy, sizeof(int), 0); 
             std::string answer = recv_string(client_fd);
             current_answer = answer;
             std::cout << "[Server] current_true_answer set: " << current_answer << std::endl;
@@ -359,6 +386,7 @@ void run_server(unsigned short port, const std::string& answer_word) {
                 max_Player = 2; // 초기값으로 리셋
                 std::lock_guard<std::mutex> lock2(is_first_client_mutex);
                 is_first_client = true;
+                player_scores.clear();
                 std::cout << "[Server] All clients disconnected. max_Player and is_first_client reset.\n";
             }
         }).detach();
