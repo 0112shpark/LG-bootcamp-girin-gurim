@@ -38,10 +38,22 @@ std::string current_answer;
 
 // 구조체 패킷 전송/수신
 void send_drawpacket(int fd, const DrawPacket& pkt) {
-    send(fd, &pkt, sizeof(pkt), 0);
+    send(fd, &pkt.type, sizeof(int), 0); // type
+    send(fd, ((char*)&pkt) + sizeof(int), sizeof(DrawPacket) - sizeof(int), 0);
 }
 bool recv_drawpacket(int fd, DrawPacket& pkt) {
-    return recv(fd, &pkt, sizeof(pkt), MSG_WAITALL) == sizeof(pkt);
+    ssize_t ret = recv(fd, ((char*)&pkt) + sizeof(int), sizeof(DrawPacket) - sizeof(int), MSG_WAITALL);
+    if (ret == 0) {
+        std::cerr << "[recv_drawpacket] Connection closed by peer" << std::endl;
+        return false;
+    } else if (ret < 0) {
+        std::cerr << "[recv_drawpacket] recv error: " << strerror(errno) << std::endl;
+        return false;
+    } else if (ret != sizeof(DrawPacket) - sizeof(int)) {
+        std::cerr << "[recv_drawpacket] Incomplete read: " << ret << " bytes" << std::endl;
+        return false;
+    }
+    return true;
 }
 void send_answerpacket(int fd, const AnswerPacket& pkt) {
     send(fd, &pkt.type, sizeof(pkt.type), 0);
@@ -50,8 +62,9 @@ void send_answerpacket(int fd, const AnswerPacket& pkt) {
 }
 bool recv_answerpacket(int fd, AnswerPacket& pkt) {
     int header;
-    if (recv(fd, &header, sizeof(header), MSG_WAITALL) != sizeof(header)) return false;
-    pkt.type = header;
+    //if (recv(fd, &header, sizeof(header), MSG_WAITALL) != sizeof(header)) return false;
+    //pkt.type = header;
+    pkt.type = MSG_ANSWER;
     pkt.nickname = recv_string(fd);
     pkt.answer = recv_string(fd);
     return true;
@@ -217,12 +230,14 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     bool correct = false;
     while (true) {
         int msg_type = 0;
-        ssize_t n = recv(client_fd, &msg_type, sizeof(int), MSG_PEEK);
+        ssize_t n = recv(client_fd, &msg_type, sizeof(int), 0);
         if (n <= 0) break;
 
         if (msg_type == MSG_DRAW) {
             DrawPacket pkt;
+            pkt.type = MSG_DRAW;
             if (!recv_drawpacket(client_fd, pkt)) break;
+            std::cout<<"x: "<<pkt.x<<"y: "<<pkt.y<<std::endl;
             broadcast_draw(pkt, client_fd);
         } else if (msg_type == MSG_ANSWER) {
             AnswerPacket pkt;
@@ -243,13 +258,13 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 broadcast_common(wrong_pkt);
             }
         } else if(msg_type == MSG_ERASE_ALL) {
-            EraseAllPacket erase_pkt;
+            EraseAllPacket erase_pkt{};
             erase_pkt.type = MSG_ERASE_ALL; 
             std::cout<<"send erase"<<std::endl;
             broadcast_eraseAll(erase_pkt, client_fd);
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
-            int dummy;
-            recv(client_fd, &dummy, sizeof(int), 0);
+            //int dummy;
+            //recv(client_fd, &dummy, sizeof(int), 0);
             std::cout << "[Server] Player(" << nickname << ") disconnect\n";
             current_Player--;
             PlayerCntPacket capacity_pkt{};
