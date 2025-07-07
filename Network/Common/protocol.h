@@ -75,7 +75,7 @@ struct SelectedPlayerPacket {
     std::string nickname;
 };
 
-struct EraseAllPacket {
+struct SendTypePacket {
     int type;
 };
 

@@ -116,7 +116,15 @@ void broadcast_draw(const DrawPacket& pkt, int except_fd = -1) {
     }
 }
 
-void broadcast_eraseAll(const EraseAllPacket& pkt, int except_fd = -1) {
+void broadcast_eraseAll(const SendTypePacket& pkt, int except_fd = -1) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (const auto& client : clients) {
+        if (client.fd == except_fd) continue;
+        send(client.fd, &pkt, sizeof(pkt), 0);
+    }
+}
+
+void broadcast_SendTypePacket(const SendTypePacket& pkt, int except_fd = -1) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients) {
         if (client.fd == except_fd) continue;
@@ -301,7 +309,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 broadcast_common(wrong_pkt);
             }
         } else if(msg_type == MSG_ERASE_ALL) {
-            EraseAllPacket erase_pkt{};
+            SendTypePacket erase_pkt{};
             erase_pkt.type = MSG_ERASE_ALL; 
             std::cout<<"send erase"<<std::endl;
             broadcast_eraseAll(erase_pkt, client_fd);
@@ -320,6 +328,9 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             // 출제자 클라이언트가 단어를 보냄
             std::string answer = recv_string(client_fd);
             current_answer = answer;
+            SendTypePacket TypePkt{};
+            TypePkt.type = MSG_SET_TRUE_ANSWER;
+            broadcast_SendTypePacket(TypePkt, client_fd);
             std::cout << "[Server] current_true_answer set: " << current_answer << std::endl;
         } else {
             // unknown
