@@ -79,6 +79,15 @@ void broadcast_draw(const DrawPacket& pkt, int except_fd = -1) {
         send_drawpacket(client.fd, pkt);
     }
 }
+
+void broadcast_eraseAll(const EraseAllPacket& pkt, int except_fd = -1) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (const auto& client : clients) {
+        if (client.fd == except_fd) continue;
+        send(client.fd, &pkt, sizeof(pkt), 0);
+    }
+}
+
 void broadcast_correct(const CorrectPacket& pkt) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients)
@@ -233,6 +242,11 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 wrong_pkt.message = pkt.answer;
                 broadcast_common(wrong_pkt);
             }
+        } else if(msg_type == MSG_ERASE_ALL) {
+            EraseAllPacket erase_pkt;
+            erase_pkt.type = MSG_ERASE_ALL; 
+            std::cout<<"send erase"<<std::endl;
+            broadcast_eraseAll(erase_pkt, client_fd);
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
             int dummy;
             recv(client_fd, &dummy, sizeof(int), 0);
