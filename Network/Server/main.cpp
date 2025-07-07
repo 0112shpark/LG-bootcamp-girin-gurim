@@ -36,6 +36,13 @@ std::mutex clients_mutex;
 std::vector<ClientInfo> clients;
 std::string current_answer;
 
+//소문자로 변경
+std::string toLower(const std::string& s) {
+    std::string result = s;
+    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+    return result;
+}
+
 // 구조체 패킷 전송/수신
 void send_drawpacket(int fd, const DrawPacket& pkt) {
     send(fd, &pkt, sizeof(pkt), 0);
@@ -149,7 +156,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
         max_Player = newMaxPlayer;
         std::cout << "[Server] max_Player set to " << max_Player << " by first client\n";
     }else {
-        // 모든 후속 클라이언트는 반드시 MSG_SET_MAX_PLAYER + 값 1쌍을 보내야만 한다!
+        // 모든 후속 클라이언트도 MSG_SET_MAX_PLAYER를 보냄 --> 무시해야함
         int msgType = 0;
         ssize_t n = recv(client_fd, &msgType, sizeof(int), MSG_WAITALL);
         if (n != sizeof(int) || msgType != MSG_SET_MAX_PLAYER) {
@@ -228,7 +235,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             AnswerPacket pkt;
             if (!recv_answerpacket(client_fd, pkt)) break;
             std::cout << "[Received answer] " << nickname << ": " << pkt.answer << std::endl;
-            if (pkt.answer == current_answer) {
+            if (toLower(pkt.answer) == toLower(current_answer)) {
                 CommonPacket correct_pkt{};
                 correct_pkt.type = MSG_CORRECT;
                 correct_pkt.nickname = nickname;
@@ -260,6 +267,13 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             close(client_fd);
 	        break;
 
+        }else if (msg_type == MSG_SET_TRUE_ANSWER) {
+            // 출제자 클라이언트가 단어를 보냄
+            int dummy;
+            recv(client_fd, &dummy, sizeof(int), 0); 
+            std::string answer = recv_string(client_fd);
+            current_answer = answer;
+            std::cout << "[Server] current_true_answer set: " << current_answer << std::endl;
         } else {
             // unknown
             char buf[256];

@@ -8,6 +8,7 @@
 #define MAX_CLIENTS 10
 #define MSG_SET_MAX_PLAYER 9999
 #define MSG_REJECTED 4004
+#define MSG_SET_TRUE_ANSWER 42
 
 enum MessageType {
     MSG_DRAW = 1,
