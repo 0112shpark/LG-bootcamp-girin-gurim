@@ -244,16 +244,14 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             capacity_pkt.maxPlayer = max_Player;
             broadcast_playerCnt(capacity_pkt);
             close(client_fd);
-	    break;
+	        break;
 
         } else {
             // unknown
             char buf[256];
             recv(client_fd, buf, sizeof(buf), 0);
         }
-        if (correct) break;
     }
-    close(client_fd);
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.erase(
