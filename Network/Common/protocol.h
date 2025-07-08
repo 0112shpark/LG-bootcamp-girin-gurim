@@ -11,6 +11,7 @@
 #define MSG_SET_MAX_PLAYER 9999
 #define MSG_REJECTED 4004
 #define MSG_SET_TRUE_ANSWER 42
+#define MSG_TIME_OVER 100
 
 enum MessageType {
     MSG_DRAW = 1,
@@ -82,5 +83,10 @@ struct SendTypePacket {
 struct ScorePacket {
     int type;
     std::vector<std::pair<std::string, int>> score;
+};
+
+struct TimeOverPacket {
+    int type;
+    std::string answer; 
 };
 #endif

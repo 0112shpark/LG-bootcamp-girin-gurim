@@ -132,12 +132,6 @@ void broadcast_SendTypePacket(const SendTypePacket& pkt, int except_fd = -1) {
     }
 }
 
-void broadcast_correct(const CorrectPacket& pkt) {
-    std::lock_guard<std::mutex> lock(clients_mutex);
-    for (const auto& client : clients)
-        send_correctpacket(client.fd, pkt);
-}
-
 void broadcast_common(const CommonPacket& pkt) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients)
@@ -332,6 +326,17 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             TypePkt.type = MSG_SET_TRUE_ANSWER;
             broadcast_SendTypePacket(TypePkt, client_fd);
             std::cout << "[Server] current_true_answer set: " << current_answer << std::endl;
+        }else if (msg_type == MSG_TIME_OVER) {
+            std::cout << "[Server] TIME_OVER: '" << current_answer << "' 공개\n";
+            // 모든 클라이언트에게 정답 전송
+            TimeOverPacket pkt;
+            pkt.type = MSG_TIME_OVER;
+            pkt.answer = current_answer;
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            for (const auto& client : clients) {
+                send(client.fd, &pkt.type, sizeof(pkt.type), 0);
+                send_string(client.fd, pkt.answer);
+            }
         } else {
             // unknown
             char buf[256];
