@@ -329,6 +329,21 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
         }else if (msg_type == MSG_TIME_OVER) {
             std::cout << "[Server] TIME_OVER: '" << current_answer << "' 공개\n";
             // 모든 클라이언트에게 정답 전송
+            // 출제자 점수 ++
+            std::string nickname = recv_string(client_fd);
+            player_scores[nickname]++;
+            ScorePacket score_pkt{};
+            {
+                
+                std::lock_guard<std::mutex> lock(clients_mutex);
+                score_pkt.type = MSG_SCORE;
+                for (const auto& kv : player_scores) {
+                    std::cout << "Score send for timeover: " << kv.first << " " << kv.second << std::endl;
+                    score_pkt.score.push_back({kv.first, kv.second});
+                }
+            }
+            broadcast_score(score_pkt);
+
             TimeOverPacket pkt;
             pkt.type = MSG_TIME_OVER;
             pkt.answer = current_answer;
@@ -360,8 +375,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     }
 }
 
-void run_server(unsigned short port, const std::string& answer_word) {
-    current_answer = answer_word;
+void run_server(unsigned short port) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) { perror("socket"); exit(1); }
     int opt = 1;
@@ -377,7 +391,7 @@ void run_server(unsigned short port, const std::string& answer_word) {
     if (listen(server_fd, MAX_CLIENTS) < 0) {
         perror("listen"); exit(1);
     }
-    std::cout << "[서버] 192.168.10.3:25000에서 대기중... (정답:" << current_answer << ")\n";
+    std::cout << "[서버] 192.168.10.3:25000에서 대기중...\n";
     int player_counter = 1;
     current_Player = 0;
     bool is_first_client = true;
@@ -416,11 +430,7 @@ void run_server(unsigned short port, const std::string& answer_word) {
     close(server_fd);
 }
 
-int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "usage: " << argv[0] << " <answer_word>\n";
-        return 1;
-    }
-    run_server(25000, argv[1]);
+int main(int argc) {
+    run_server(25000);
     return 0;
 }

@@ -87,6 +87,7 @@ struct ScorePacket {
 
 struct TimeOverPacket {
     int type;
-    std::string answer; 
+    std::string answer;
+    std::string nickname;
 };
 #endif
