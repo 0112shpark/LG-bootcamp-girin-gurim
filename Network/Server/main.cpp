@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <random>
@@ -48,6 +49,7 @@ void send_drawpacket(int fd, const DrawPacket& pkt) {
     send(fd, &pkt.type, sizeof(int), 0); // type
     send(fd, ((char*)&pkt) + sizeof(int), sizeof(DrawPacket) - sizeof(int), 0);
 }
+
 bool recv_drawpacket(int fd, DrawPacket& pkt) {
     ssize_t ret = recv(fd, ((char*)&pkt) + sizeof(int), sizeof(DrawPacket) - sizeof(int), MSG_WAITALL);
     if (ret == 0) {
@@ -62,13 +64,15 @@ bool recv_drawpacket(int fd, DrawPacket& pkt) {
     }
     return true;
 }
+
 void send_answerpacket(int fd, const AnswerPacket& pkt) {
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
     send_string(fd, pkt.answer);
 }
+
 bool recv_answerpacket(int fd, AnswerPacket& pkt) {
-    int header;
+    //int header;
     //if (recv(fd, &header, sizeof(header), MSG_WAITALL) != sizeof(header)) return false;
     //pkt.type = header;
     pkt.type = MSG_ANSWER;
@@ -76,10 +80,12 @@ bool recv_answerpacket(int fd, AnswerPacket& pkt) {
     pkt.answer = recv_string(fd);
     return true;
 }
+
 void send_correctpacket(int fd, const CorrectPacket& pkt) {
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
 }
+
 void send_wrongpacket(int fd, const WrongPacket& pkt) {
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
@@ -157,7 +163,7 @@ void broadcast_selected_player(const std::string& nickname) {
     }
 }
 
-    std::string pick_random_player() {
+std::string pick_random_player() {
     std::lock_guard<std::mutex> lock(clients_mutex);
     if (clients.empty()) return "";
     static std::random_device rd;
@@ -173,31 +179,39 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
         // 최초 클라이언트로부터 max_Player 정보 수신
         int msgType = 0;
         ssize_t n = recv(client_fd, &msgType, sizeof(int), MSG_WAITALL);
+
         if (n <= 0 || msgType != MSG_SET_MAX_PLAYER) {
             std::cerr << "Failed to receive maxPlayer info from first client!\n";
             close(client_fd);
             return;
         }
+
         int newMaxPlayer = 2;
         n = recv(client_fd, &newMaxPlayer, sizeof(int), MSG_WAITALL);
+
         if (n != sizeof(int)) {
             std::cerr << "Failed to receive maxPlayer value!\n";
             close(client_fd);
             return;
         }
+
         max_Player = newMaxPlayer;
         std::cout << "[Server] max_Player set to " << max_Player << " by first client\n";
-    }else {
+
+    } else {
         // 모든 후속 클라이언트도 MSG_SET_MAX_PLAYER를 보냄 --> 무시해야함
         int msgType = 0;
         ssize_t n = recv(client_fd, &msgType, sizeof(int), MSG_WAITALL);
+
         if (n != sizeof(int) || msgType != MSG_SET_MAX_PLAYER) {
             std::cerr << "[Server] rejected client: did not send MSG_SET_MAX_PLAYER\n";
             close(client_fd);
             return;
         }
+
         int requestedMaxPlayer = 0;
         n = recv(client_fd, &requestedMaxPlayer, sizeof(int), MSG_WAITALL);
+
         if (n != sizeof(int) || requestedMaxPlayer != max_Player) {
             std::cerr << "[Server] rejected client: requested maxPlayer("
             << requestedMaxPlayer << ") != server max_Player("
@@ -208,7 +222,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             usleep(100000); // 100ms, 충분히 flush할 시간
             close(client_fd);
             return;
-}
+		}
     }
 
     // 참가 조건 체크
@@ -222,14 +236,13 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
         return;
     }
 
-    {
+	{
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.push_back({client_fd, nickname});
         player_scores[nickname] = 0;
         current_Player++;
     }
 
-    
     PlayerNumPacket player_pkt{};
     PlayerCntPacket capacity_pkt{};
 
@@ -266,13 +279,17 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     while (true) {
         int msg_type = 0;
         ssize_t n = recv(client_fd, &msg_type, sizeof(int), 0);
-        if (n <= 0) break;
+        if (n <= 0) {
+            std::cout << "[Server] Player(" << nickname << ") disconnect\n";
+			break;
+		}
 
         if (msg_type == MSG_DRAW) {
             DrawPacket pkt;
             pkt.type = MSG_DRAW;
             if (!recv_drawpacket(client_fd, pkt)) break;
             broadcast_draw(pkt, client_fd);
+
         } else if (msg_type == MSG_ANSWER) {
             AnswerPacket pkt;
             if (!recv_answerpacket(client_fd, pkt)) break;
@@ -280,15 +297,17 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             if (toLower(pkt.answer) == toLower(current_answer)) {
 
                 ScorePacket score_pkt{};
-            {
-                std::lock_guard<std::mutex> lock(clients_mutex);
-                player_scores[nickname]++;
-                score_pkt.type = MSG_SCORE;
+
+				{
+					std::lock_guard<std::mutex> lock(clients_mutex);
+					player_scores[nickname]++;
+					score_pkt.type = MSG_SCORE;
                 
-                for (const auto& kv : player_scores) {
-                        score_pkt.score.push_back({kv.first, kv.second});
+					for (const auto& kv : player_scores) {
+							score_pkt.score.push_back({kv.first, kv.second});
                     }
-            }
+				}
+
                 broadcast_score(score_pkt);
                 // broadcast correct answer
                 CommonPacket correct_pkt{};
@@ -296,6 +315,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 correct_pkt.nickname = nickname;
                 correct_pkt.message = pkt.answer;
                 broadcast_common(correct_pkt);
+
             } else {
                 CommonPacket wrong_pkt{};
                 wrong_pkt.type = MSG_WRONG;
@@ -303,23 +323,18 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 wrong_pkt.message = pkt.answer;
                 broadcast_common(wrong_pkt);
             }
-        } else if(msg_type == MSG_ERASE_ALL) {
+
+        } else if (msg_type == MSG_ERASE_ALL) {
             SendTypePacket erase_pkt{};
             erase_pkt.type = MSG_ERASE_ALL; 
             std::cout<<"send erase"<<std::endl;
             broadcast_eraseAll(erase_pkt, client_fd);
+
         } else if (msg_type == MSG_DISCONNECT) { // ★ 추가
             std::cout << "[Server] Player(" << nickname << ") disconnect\n";
-            current_Player--;
-            PlayerCntPacket capacity_pkt{};
-            capacity_pkt.type = MSG_PLAYER_CNT;
-            capacity_pkt.currentPlayer_cnt = current_Player;
-            capacity_pkt.maxPlayer = max_Player;
-            broadcast_playerCnt(capacity_pkt);
-            close(client_fd);
 	        break;
 
-        }else if (msg_type == MSG_SET_TRUE_ANSWER) {
+        } else if (msg_type == MSG_SET_TRUE_ANSWER) {
             // 출제자 클라이언트가 단어를 보냄
             std::string answer = recv_string(client_fd);
             current_answer = answer;
@@ -328,6 +343,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             TypePkt.str = current_answer;
             broadcast_SendTypePacket(TypePkt, client_fd);
             std::cout << "[Server] current_true_answer set: " << current_answer << std::endl;
+
         }else if (msg_type == MSG_TIME_OVER) {
             std::cout << "[Server] TIME_OVER: '" << current_answer << "' 공개\n";
             // 모든 클라이언트에게 정답 전송
@@ -354,12 +370,15 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 send(client.fd, &pkt.type, sizeof(pkt.type), 0);
                 send_string(client.fd, pkt.answer);
             }
+
         } else {
             // unknown
             char buf[256];
             recv(client_fd, buf, sizeof(buf), 0);
+
         }
     }
+
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients.erase(
@@ -368,6 +387,19 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             clients.end()
         );
     }
+
+	{
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        current_Player--;
+    }
+
+	PlayerCntPacket capacity_cnt_pkt{};
+	capacity_cnt_pkt.type = MSG_PLAYER_CNT;
+	capacity_cnt_pkt.currentPlayer_cnt = current_Player;
+	capacity_cnt_pkt.maxPlayer = max_Player;
+	broadcast_playerCnt(capacity_cnt_pkt);
+	close(client_fd);
+
     std::cout << "Client disconnected (" << nickname << ")\n";
 
     if (clients.empty()) {
@@ -378,10 +410,21 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
 }
 
 void run_server(unsigned short port) {
+
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) { perror("socket"); exit(1); }
+
     int opt = 1;
+	int enable_keepalive = 1;
+	int keepidle = 3;    // Time (in seconds) before sending keep-alive probes
+	int keepinterval = 1; // Interval (in seconds) between probes
+	int keepcount = 1;    // Number of failed probes before closing the connection
+
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	setsockopt(server_fd, SOL_SOCKET, SO_KEEPALIVE, &enable_keepalive, sizeof(enable_keepalive));
+	setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+	setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepinterval, sizeof(keepinterval));
+	setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcount, sizeof(keepcount));
 
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
@@ -432,7 +475,7 @@ void run_server(unsigned short port) {
     close(server_fd);
 }
 
-int main(int argc) {
+int main(int argc, int* argv[]) {
     run_server(25000);
     return 0;
 }
