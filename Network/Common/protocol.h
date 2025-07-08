@@ -78,6 +78,7 @@ struct SelectedPlayerPacket {
 
 struct SendTypePacket {
     int type;
+    std::string str;
 };
 
 struct ScorePacket {

@@ -128,7 +128,8 @@ void broadcast_SendTypePacket(const SendTypePacket& pkt, int except_fd = -1) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     for (const auto& client : clients) {
         if (client.fd == except_fd) continue;
-        send(client.fd, &pkt, sizeof(pkt), 0);
+        send(client.fd, &pkt.type, sizeof(pkt.type), 0);
+        send_string(client.fd, pkt.str);
     }
 }
 
@@ -324,6 +325,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             current_answer = answer;
             SendTypePacket TypePkt{};
             TypePkt.type = MSG_SET_TRUE_ANSWER;
+            TypePkt.str = current_answer;
             broadcast_SendTypePacket(TypePkt, client_fd);
             std::cout << "[Server] current_true_answer set: " << current_answer << std::endl;
         }else if (msg_type == MSG_TIME_OVER) {
