@@ -15,7 +15,6 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/jiffies.h>
-#include <linux/delay.h>
 
 #include "../include/custom_ioctl.h"
 
@@ -70,12 +69,22 @@ static DEFINE_MUTEX(led_op_mutex);
 
 /* === 비동기 LED 제어용 === */
 static struct timer_list led_off_timer;
+static struct timer_list led_blink_timer;
+static struct timer_list led_timer_blink_timer;
+
 static struct work_struct led_blink_work;
 static struct work_struct led_timer_work;
 
 #define BLINK_ON_MS 100
 #define BLINK_OFF_MS 100
-#define SLEEP_STEP_MS 10
+
+// WRONG blink용 상태
+static int led_blink_remaining = 0;
+static int led_blink_state = 0; // 0: off, 1: on
+
+// TIMER blink용 상태
+static int timer_blink_remaining = 0;
+static int timer_blink_state = 0; // 0: off, 1: on
 
 static void led_init(void)
 {
@@ -108,39 +117,37 @@ static void led_on_with_timer(unsigned long msec)
     mod_timer(&led_off_timer, jiffies + msecs_to_jiffies(msec));
 }
 
-static void led_timer_async(void)
+// WRONG BLINK 타이머 기반
+static void led_blink_timer_func(struct timer_list *t)
 {
-    if (atomic_read(&led_stop_flag)) return;
-    schedule_work(&led_timer_work);
-}
+    if (atomic_read(&led_stop_flag)) {
+        led_blink_remaining = 0;
+        led_off();
+        return;
+    }
 
-static void led_blink_work_func(struct work_struct *work)
-{
-    int i, t;
-    for (i = 0; i < 4; ++i) {
-        if (atomic_read(&led_stop_flag)) break;
-        // LED1 ON, LED2 OFF
-        iowrite32(0x1 << 5, (void*)(gpio_base + GPCLR0));
-        iowrite32(0x1 << 6, (void*)(gpio_base + GPSET0));
-        for (t = 0; t < BLINK_ON_MS; t += SLEEP_STEP_MS) {
-            if (atomic_read(&led_stop_flag)) goto end_blink;
-            msleep(SLEEP_STEP_MS);
+    if (led_blink_remaining > 0) {
+        if (led_blink_state == 0) {
+            iowrite32(0x1 << 5, (void*)(gpio_base + GPCLR0));
+            iowrite32(0x1 << 6, (void*)(gpio_base + GPSET0));
+            led_blink_state = 1;
+            mod_timer(&led_blink_timer, jiffies + msecs_to_jiffies(BLINK_ON_MS));
+        } else {
+            iowrite32(0x1 << 5, (void*)(gpio_base + GPSET0));
+            iowrite32(0x1 << 6, (void*)(gpio_base + GPCLR0));
+            led_blink_state = 0;
+            led_blink_remaining--;
+            mod_timer(&led_blink_timer, jiffies + msecs_to_jiffies(BLINK_OFF_MS));
         }
-        // LED1 OFF, LED2 ON
-        iowrite32(0x1 << 5, (void*)(gpio_base + GPSET0));
-        iowrite32(0x1 << 6, (void*)(gpio_base + GPCLR0));
-        for (t = 0; t < BLINK_OFF_MS; t += SLEEP_STEP_MS) {
-            if (atomic_read(&led_stop_flag)) goto end_blink;
-            msleep(SLEEP_STEP_MS);
+    } else {
+        led_off();
+        // Wrong blink 끝나면 timer blink 재시작
+        mutex_lock(&timer_blink_mutex);
+        if (timer_blink_elapsed < timer_blink_total) {
+            schedule_work(&led_timer_work);
         }
+        mutex_unlock(&timer_blink_mutex);
     }
-end_blink:
-    led_off();
-    mutex_lock(&timer_blink_mutex);
-    if (timer_blink_elapsed < timer_blink_total) {
-        led_timer_async();
-    }
-    mutex_unlock(&timer_blink_mutex);
 }
 
 static void led_blink_async(void)
@@ -149,39 +156,58 @@ static void led_blink_async(void)
     schedule_work(&led_blink_work);
 }
 
+static void led_blink_work_func(struct work_struct *work)
+{
+    led_blink_remaining = 4 * 2; // 4회, on/off 반복
+    led_blink_state = 0;
+    led_off();
+    mod_timer(&led_blink_timer, jiffies + msecs_to_jiffies(BLINK_ON_MS));
+}
+
+// TIMER BLINK 타이머 기반
+static void led_timer_blink_timer_func(struct timer_list *t)
+{
+    if (atomic_read(&led_stop_flag) || timer_blink_remaining <= 0) {
+        led_off();
+        return;
+    }
+    if (timer_blink_state == 0) {
+        iowrite32(0x3<<5, (void*)(gpio_base+GPCLR0)); // ON
+        timer_blink_state = 1;
+        mod_timer(&led_timer_blink_timer, jiffies + msecs_to_jiffies(500));
+    } else {
+        iowrite32(0x3<<5, (void*)(gpio_base+GPSET0)); // OFF
+        timer_blink_state = 0;
+        timer_blink_remaining--;
+        timer_blink_elapsed++;
+        mod_timer(&led_timer_blink_timer, jiffies + msecs_to_jiffies(500));
+    }
+}
+
 static void led_blink_timer_work_func(struct work_struct *work)
 {
-    int i, t;
     mutex_lock(&timer_blink_mutex);
     if(timer_blink_elapsed == timer_blink_total) timer_blink_elapsed = 0;
-    for (i = timer_blink_elapsed; i < timer_blink_total; ++i) {
-        if (atomic_read(&led_stop_flag)) break;
-        // 1초 blink (0.5초 ON/OFF)
-        iowrite32(0x3<<5, (void*)(gpio_base+GPCLR0)); // ON
-        for (t = 0; t < 500; t += 10) {
-            if (atomic_read(&led_stop_flag)) goto end_blink;
-            msleep(10);
-        }
-        iowrite32(0x3<<5, (void*)(gpio_base+GPSET0)); // OFF
-        for (t = 0; t < 500; t += 10) {
-            if (atomic_read(&led_stop_flag)) goto end_blink;
-            msleep(10);
-        }
-        timer_blink_elapsed++; // 1초 경과
-    }
-end_blink:
+    timer_blink_remaining = timer_blink_total - timer_blink_elapsed;
+    timer_blink_state = 0;
+    led_off();
+    mod_timer(&led_timer_blink_timer, jiffies + msecs_to_jiffies(1));
     mutex_unlock(&timer_blink_mutex);
 }
 
+// ioctl
 static long device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     int ret = 0;
 
     printk("dev_Control : device_ioctl (minor = %d)\n", iminor(filp->f_path.dentry->d_inode));
-    /* === 이전 명령 중단 요청 === */
     atomic_set(&led_stop_flag, 1);
     mutex_lock(&led_op_mutex);
-    msleep(10);
+
+    del_timer_sync(&led_off_timer);
+    del_timer_sync(&led_blink_timer);
+    del_timer_sync(&led_timer_blink_timer);
+
     atomic_set(&led_stop_flag, 0);
 
     switch(cmd) {
@@ -195,10 +221,7 @@ static long device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             break;
         case MY_IOCTL_CMD_LED_BLINK:
             printk("dev_Control: MY_IOCTL_CMD_LED_BLINK\n");
-            atomic_set(&led_stop_flag, 1);
-            msleep(10);
-            cancel_work_sync(&led_timer_work);
-            atomic_set(&led_stop_flag, 0);
+            del_timer_sync(&led_timer_blink_timer); // 타이머 blink 중단
             led_blink_async();
             break;
         case MY_IOCTL_CMD_BTN_CLEAR:
@@ -206,7 +229,7 @@ static long device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             break;
         case MY_IOCTL_CMD_LED_TIMER:
             printk("dev_Control: MY_IOCTL_CMD_LED_TIMER\n");
-            led_timer_async();
+            schedule_work(&led_timer_work);
             break;
         default:
             printk("dev_Control: unknown command\n");
@@ -274,7 +297,7 @@ static const struct file_operations my_fops = {
     .poll = device_poll,
 };
 
-// === ISR에서 버튼 이벤트 wakeup ===
+// ISR
 static irqreturn_t key_clear_isr(int irq, void *dev_id)
 {
     int idx = (int)(long)dev_id;
@@ -285,7 +308,7 @@ static irqreturn_t key_clear_isr(int irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
-// === init/exit ===
+// init/exit
 static int __init device_init(void)
 {
     int ret, i;
@@ -329,7 +352,7 @@ static int __init device_init(void)
 
     led_init();
 
-    // === 버튼 관련 ===
+    // 버튼 관련
     init_waitqueue_head(&btn_wq);
 
     for (i = 0; i < BTN_NUM; i++) {
@@ -365,8 +388,10 @@ static int __init device_init(void)
             continue;
         }
     }
-    // === 타이머/워크큐 초기화 ===
+    // 타이머/워크큐 초기화
     timer_setup(&led_off_timer, led_off_timer_func, 0);
+    timer_setup(&led_blink_timer, led_blink_timer_func, 0);
+    timer_setup(&led_timer_blink_timer, led_timer_blink_timer_func, 0);
     INIT_WORK(&led_blink_work, led_blink_work_func);
     INIT_WORK(&led_timer_work, led_blink_timer_work_func);
 
@@ -391,6 +416,8 @@ static void __exit device_exit(void)
     printk("dev_Control: device_exit\n");
 
     del_timer_sync(&led_off_timer);
+    del_timer_sync(&led_blink_timer);
+    del_timer_sync(&led_timer_blink_timer);
     cancel_work_sync(&led_blink_work);
     cancel_work_sync(&led_timer_work);
 
