@@ -22,15 +22,15 @@ void handle_device_control_request(requestType requestType)
     switch(requestType){
         case LED_CORRECT:
             ioctl(fd, MY_IOCTL_CMD_LED_ON);
-            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-            // LED OFF
-            ioctl(fd, MY_IOCTL_CMD_LED_OFF);
             break;
         case LED_WRONG:
             ioctl(fd, MY_IOCTL_CMD_LED_BLINK);
             break;
         case BTN_CLEAR:
             ioctl(fd, MY_IOCTL_CMD_BTN_CLEAR);
+            break;
+        case LED_TIMER:
+            ioctl(fd, MY_IOCTL_CMD_LED_TIMER);
             break;
         default:
             break; 

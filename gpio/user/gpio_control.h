@@ -6,7 +6,8 @@
 enum requestType {
     LED_CORRECT,
     LED_WRONG,
-    BTN_CLEAR
+    BTN_CLEAR,
+    LED_TIMER
 };
 
 void handle_device_control_request(requestType requestType);
