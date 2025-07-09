@@ -11,7 +11,18 @@
 #include <arpa/inet.h>
 #include <random>
 
+struct ClientInfo {
+    int fd;
+    std::string nickname;
+};
+
+std::mutex clients_mutex;
+std::mutex string_mutex;
+std::vector<ClientInfo> clients;
+std::string current_answer;
+
 void send_string(int fd, const std::string& s) {
+    std::lock_guard<std::mutex> lock3(string_mutex);
     uint32_t len = s.size();
     send(fd, &len, sizeof(len), 0);
     if (len > 0) send(fd, s.data(), len, 0);
@@ -28,14 +39,7 @@ std::string recv_string(int fd) {
     return s;
 }
 
-struct ClientInfo {
-    int fd;
-    std::string nickname;
-};
 
-std::mutex clients_mutex;
-std::vector<ClientInfo> clients;
-std::string current_answer;
 
 //소문자로 변경
 std::string toLower(const std::string& s) {
@@ -66,6 +70,7 @@ bool recv_drawpacket(int fd, DrawPacket& pkt) {
 }
 
 void send_answerpacket(int fd, const AnswerPacket& pkt) {
+
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
     send_string(fd, pkt.answer);
@@ -82,17 +87,20 @@ bool recv_answerpacket(int fd, AnswerPacket& pkt) {
 }
 
 void send_correctpacket(int fd, const CorrectPacket& pkt) {
+
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
 }
 
 void send_wrongpacket(int fd, const WrongPacket& pkt) {
+
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
     send_string(fd, pkt.message);
 }
 
 void send_commonpacket(int fd, const CommonPacket& pkt) {
+
     send(fd, &pkt.type, sizeof(pkt.type), 0);
     send_string(fd, pkt.nickname);
     send_string(fd, pkt.message);
@@ -217,6 +225,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
             << requestedMaxPlayer << ") != server max_Player("
             << max_Player << ")\n";
             int reject_type = MSG_REJECTED;
+            player_counter--;
             send(client_fd, &reject_type, sizeof(reject_type), 0);
             shutdown(client_fd, SHUT_WR); // write half close (flush)
             usleep(100000); // 100ms, 충분히 flush할 시간
@@ -229,6 +238,7 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     if (current_Player >= max_Player) {
         std::cout << "[Server] Out of capacity (current: " << current_Player << ", max: " << max_Player << ")\n";
         int reject_type = MSG_REJECTED;
+        player_counter--;
         send(client_fd, &reject_type, sizeof(reject_type), 0);
         shutdown(client_fd, SHUT_WR);
         usleep(100000); // 100ms
@@ -253,10 +263,12 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     capacity_pkt.currentPlayer_cnt = current_Player;
     capacity_pkt.maxPlayer = max_Player;
 
-    std::cout << "Client connected (" << nickname << ")\n";
-    std::cout <<capacity_pkt.currentPlayer_cnt << ")\n";
+    std::cout << "Client connected (" << nickname << ")"<<capacity_pkt.currentPlayer_cnt << ")\n";
     broadcast_playerCnt(capacity_pkt);
-    send(client_fd, &player_pkt, sizeof(player_pkt), 0);
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        send(client_fd, &player_pkt, sizeof(player_pkt), 0);
+    }
 
     if (current_Player == max_Player) {
         std::string selected = pick_random_player();
@@ -386,13 +398,8 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
                 [client_fd](const ClientInfo& c) { return c.fd == client_fd; }),
             clients.end()
         );
-    }
-
-	{
-        std::lock_guard<std::mutex> lock(clients_mutex);
         current_Player--;
     }
-
 	PlayerCntPacket capacity_cnt_pkt{};
 	capacity_cnt_pkt.type = MSG_PLAYER_CNT;
 	capacity_cnt_pkt.currentPlayer_cnt = current_Player;
@@ -405,7 +412,6 @@ void handle_client(int client_fd, int player_num, bool is_first_client) {
     if (clients.empty()) {
         max_Player = 2; // 모두 나갔을 경우 기본값으로 초기화 
         std::cout << "[Server] All clients disconnected. max_Player reset to 2.\n";
-
     }
 }
 
@@ -437,7 +443,6 @@ void run_server(unsigned short port) {
         perror("listen"); exit(1);
     }
     std::cout << "[서버] 192.168.10.3:25000에서 대기중...\n";
-    int player_counter = 1;
     current_Player = 0;
     bool is_first_client = true;
     std::mutex is_first_client_mutex; 
@@ -459,17 +464,23 @@ void run_server(unsigned short port) {
         // 스레드 생성 시 람다로 감싸서, 클라이언트 종료 후 체크
         std::thread([&, client_fd, player_num = player_counter++, this_is_first_client]() {
             handle_client(client_fd, player_num, this_is_first_client);
-
+            
+            std::cout<<"player Num : "<< player_num<<std::endl;
+            std::cout<<"client size : "<< clients.size()<<std::endl;
             // 클라이언트가 종료된 후 체크
             std::lock_guard<std::mutex> lock(clients_mutex);
             if (clients.empty()) {
                 max_Player = 2; // 초기값으로 리셋
                 std::lock_guard<std::mutex> lock2(is_first_client_mutex);
                 is_first_client = true;
+                current_Player = 0;
+                player_counter = 1;
                 player_scores.clear();
                 std::cout << "[Server] All clients disconnected. max_Player and is_first_client reset.\n";
             }
         }).detach();
+
+        
 
     }
     close(server_fd);
